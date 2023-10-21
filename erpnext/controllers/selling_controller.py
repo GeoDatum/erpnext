@@ -4,9 +4,9 @@
 
 import frappe
 from frappe import _, bold, throw
-from frappe.contacts.doctype.address.address import get_address_display
 from frappe.utils import cint, flt, get_link_to_form, nowtime
 
+from erpnext.accounts.party import render_address
 from erpnext.controllers.accounts_controller import get_taxes_and_charges
 from erpnext.controllers.sales_and_purchase_return import get_rate_for_return
 from erpnext.controllers.stock_controller import StockController
@@ -194,11 +194,17 @@ class SellingController(StockController):
 					frappe.throw(_("Maximum discount for Item {0} is {1}%").format(d.item_code, discount))
 
 	def set_qty_as_per_stock_uom(self):
+		allow_to_edit_stock_qty = frappe.db.get_single_value(
+			"Stock Settings", "allow_to_edit_stock_uom_qty_for_sales"
+		)
+
 		for d in self.get("items"):
 			if d.meta.get_field("stock_qty"):
 				if not d.conversion_factor:
 					frappe.throw(_("Row {0}: Conversion Factor is mandatory").format(d.idx))
 				d.stock_qty = flt(d.qty) * flt(d.conversion_factor)
+				if allow_to_edit_stock_qty:
+					d.stock_qty = flt(d.stock_qty, d.precision("stock_qty"))
 
 	def validate_selling_price(self):
 		def throw_message(idx, item_name, rate, ref_rate_field):
@@ -282,7 +288,9 @@ class SellingController(StockController):
 			last_valuation_rate_in_sales_uom = last_valuation_rate * (item.conversion_factor or 1)
 
 			if flt(item.base_net_rate) < flt(last_valuation_rate_in_sales_uom):
-				throw_message(item.idx, item.item_name, last_valuation_rate_in_sales_uom, "valuation rate")
+				throw_message(
+					item.idx, item.item_name, last_valuation_rate_in_sales_uom, "valuation rate (Moving Average)"
+				)
 
 	def get_item_list(self):
 		il = []
@@ -594,7 +602,9 @@ class SellingController(StockController):
 
 		for address_field, address_display_field in address_dict.items():
 			if self.get(address_field):
-				self.set(address_display_field, get_address_display(self.get(address_field)))
+				self.set(
+					address_display_field, render_address(self.get(address_field), check_permissions=False)
+				)
 
 	def validate_for_duplicate_items(self):
 		check_list, chk_dupl_itm = [], []

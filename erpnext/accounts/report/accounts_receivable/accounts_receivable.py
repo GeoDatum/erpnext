@@ -116,7 +116,7 @@ class ReceivablePayableReport(object):
 		# build all keys, since we want to exclude vouchers beyond the report date
 		for ple in self.ple_entries:
 			# get the balance object for voucher_type
-			key = (ple.voucher_type, ple.voucher_no, ple.party)
+			key = (ple.account, ple.voucher_type, ple.voucher_no, ple.party)
 			if not key in self.voucher_balance:
 				self.voucher_balance[key] = frappe._dict(
 					voucher_type=ple.voucher_type,
@@ -183,7 +183,7 @@ class ReceivablePayableReport(object):
 			):
 				return
 
-		key = (ple.against_voucher_type, ple.against_voucher_no, ple.party)
+		key = (ple.account, ple.against_voucher_type, ple.against_voucher_no, ple.party)
 
 		# If payment is made against credit note
 		# and credit note is made against a Sales Invoice
@@ -192,13 +192,13 @@ class ReceivablePayableReport(object):
 			if ple.against_voucher_no in self.return_entries:
 				return_against = self.return_entries.get(ple.against_voucher_no)
 				if return_against:
-					key = (ple.against_voucher_type, return_against, ple.party)
+					key = (ple.account, ple.against_voucher_type, return_against, ple.party)
 
 		row = self.voucher_balance.get(key)
 
 		if not row:
 			# no invoice, this is an invoice / stand-alone payment / credit note
-			row = self.voucher_balance.get((ple.voucher_type, ple.voucher_no, ple.party))
+			row = self.voucher_balance.get((ple.account, ple.voucher_type, ple.voucher_no, ple.party))
 
 		row.party_type = ple.party_type
 		return row
@@ -769,15 +769,12 @@ class ReceivablePayableReport(object):
 		self.or_filters = []
 
 		for party_type in self.party_type:
-			party_type_field = scrub(party_type)
-			self.or_filters.append(self.ple.party_type == party_type)
+			self.add_common_filters()
 
-			self.add_common_filters(party_type_field=party_type_field)
-
-			if party_type_field == "customer":
+			if self.account_type == "Receivable":
 				self.add_customer_filters()
 
-			elif party_type_field == "supplier":
+			elif self.account_type == "Payable":
 				self.add_supplier_filters()
 
 		if self.filters.cost_center:
@@ -793,21 +790,18 @@ class ReceivablePayableReport(object):
 		]
 		self.qb_selection_filter.append(self.ple.cost_center.isin(cost_center_list))
 
-	def add_common_filters(self, party_type_field):
+	def add_common_filters(self):
 		if self.filters.company:
 			self.qb_selection_filter.append(self.ple.company == self.filters.company)
 
 		if self.filters.finance_book:
 			self.qb_selection_filter.append(self.ple.finance_book == self.filters.finance_book)
 
-		if self.filters.get(party_type_field):
-			self.qb_selection_filter.append(self.ple.party == self.filters.get(party_type_field))
-
 		if self.filters.get("party_type"):
 			self.qb_selection_filter.append(self.filters.party_type == self.ple.party_type)
 
 		if self.filters.get("party"):
-			self.qb_selection_filter.append(self.filters.party == self.ple.party)
+			self.qb_selection_filter.append(self.ple.party.isin(self.filters.party))
 
 		if self.filters.party_account:
 			self.qb_selection_filter.append(self.ple.account == self.filters.party_account)
@@ -968,6 +962,20 @@ class ReceivablePayableReport(object):
 				fieldname="customer_primary_contact",
 				fieldtype="Link",
 				options="Contact",
+			)
+		if self.filters.party_type == "Customer":
+			self.add_column(
+				_("Customer Name"),
+				fieldname="customer_name",
+				fieldtype="Link",
+				options="Customer",
+			)
+		elif self.filters.party_type == "Supplier":
+			self.add_column(
+				_("Supplier Name"),
+				fieldname="supplier_name",
+				fieldtype="Link",
+				options="Supplier",
 			)
 
 		self.add_column(label=_("Cost Center"), fieldname="cost_center", fieldtype="Data")
